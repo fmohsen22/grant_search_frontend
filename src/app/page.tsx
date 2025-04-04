@@ -201,19 +201,12 @@ export default function GrantSearch() {
     }
 
     setIsLoading(true);
-    setResults(''); // Clear the results immediately when starting analysis
     try {
-      console.log('Preparing data for analysis...');
-      // Format the data from searchResponse
-      const grantsData = searchResponse.data.map((grant: any) => ({
-        title: grant.title,
-        link: grant.link,
-      }));
-
-      console.log('Sending analysis request with data:', grantsData);
+      console.log('Sending complete search response for analysis:', searchResponse);
+      
       const response = await axios.post(
         'http://localhost:5678/webhook/7331ee44-831d-459a-8dc1-082e87b9663b',
-        { grants: grantsData },
+        searchResponse,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -223,15 +216,16 @@ export default function GrantSearch() {
       
       console.log('Analysis response:', response.data);
       
-      // Parse the output string from the response
       if (response.data && response.data.output) {
         try {
           const parsedOutput = JSON.parse(response.data.output);
-          if (parsedOutput.grants) {
+          console.log('Parsed analysis results:', parsedOutput);
+          
+          if (parsedOutput.grants && Array.isArray(parsedOutput.grants)) {
             setAnalyzedGrants(parsedOutput.grants);
-            setSearchResponse(null); // Clear the search response after successful analysis
+            setResults(''); // Clear the search results to show analyzed grants
           } else {
-            console.error('No grants array in parsed output:', parsedOutput);
+            console.error('Invalid analysis format:', parsedOutput);
             setResults('Error: Invalid analysis response format');
           }
         } catch (parseError) {
@@ -244,7 +238,7 @@ export default function GrantSearch() {
       }
     } catch (error) {
       console.error('Analysis error:', error);
-      setResults('Error during analysis. Please try again.'); // Show error in results
+      setResults('Error during analysis. Please try again.');
     } finally {
       setIsLoading(false);
     }
