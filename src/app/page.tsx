@@ -211,17 +211,27 @@ export default function GrantSearch() {
   // Function to handle grant proposal generation
   const handleGenerateProposal = async (action: GrantAction) => {
     try {
-      const endpoint = `${API_CONFIG.BACKEND_URL}/generate-proposal`;
+      console.log('Generating proposal for grant:', action.name);
       
-      await axios.post(endpoint, {
-        grantName: action.name,
-        grantLink: action.link
+      const response = await axios.post('/api/scrape-grant-detail', {
+        endpoint: action.link
+      }, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
       });
+
+      console.log('Generate proposal response:', response.data);
       
-      alert(`Successfully requested proposal generation for ${action.name}`);
+      if (response.data && response.data.status === 'success') {
+        alert(`Successfully generated proposal for ${action.name}`);
+      } else {
+        throw new Error('Failed to generate proposal');
+      }
     } catch (error) {
-      console.error('Error:', error);
-      alert('Failed to process request. Please try again.');
+      console.error('Error generating proposal:', error);
+      alert('Failed to generate proposal. Please try again.');
     }
   };
 
