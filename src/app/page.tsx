@@ -50,6 +50,7 @@ export default function GrantSearch() {
   const [analyzedGrants, setAnalyzedGrants] = useState<GrantAnalysis[]>([]);
   const [stateOptions, setStateOptions] = useState<SelectOption[]>([]);
   const [focusAreaOptions, setFocusAreaOptions] = useState<SelectOption[]>([]);
+  const [isGeneratingProposal, setIsGeneratingProposal] = useState<boolean>(false);
 
   useEffect(() => {
     console.log('useEffect triggered'); // Debug: Effect trigger
@@ -210,30 +211,28 @@ export default function GrantSearch() {
 
   // Function to handle grant proposal generation
   const handleGenerateProposal = async (action: GrantAction) => {
+    setIsGeneratingProposal(true);
     try {
-      console.log('Step 1: Scraping grant details for:', action.name);
+      console.log('Step 1: Scraping grant details for:', action.name, 'Link:', action.link);
       
-      // First request: Scrape grant details
+      // First request: Scrape grant details through the Next.js proxy
       const scrapeResponse = await axios.post('/api/scrape-grant-detail', {
-        endpoint: action.link
-      }, {
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
+        endpoint: action.link,
+        username: API_CONFIG.CREDENTIALS.username,
+        password: API_CONFIG.CREDENTIALS.password
       });
 
       console.log('Scrape response:', scrapeResponse.data);
       
       if (!scrapeResponse.data) {
-        throw new Error('Failed to scrape grant details');
+        throw new Error('Failed to scrape grant details - empty response');
       }
 
-      console.log('Step 2: Sending scraped data to webhook for analysis');
+      console.log('Step 2: Sending scraped data to webhook for proposal generation');
 
-      // Second request: Send scraped data to webhook
+      // Second request: Send scraped data to webhook through the Next.js proxy
       const webhookResponse = await axios.post(
-        `${API_CONFIG.WEBHOOK_URL}${API_CONFIG.ENDPOINTS.PROPOSAL_WEBHOOK}`,
+        '/api/webhook/7072178c-479a-4245-8c04-6b0e45af976e',
         scrapeResponse.data,
         {
           headers: {
@@ -242,27 +241,181 @@ export default function GrantSearch() {
         }
       );
 
-      console.log('Webhook response received');
+      console.log('Raw webhook response:', webhookResponse);
+      console.log('Webhook response data:', webhookResponse.data);
 
-      if (webhookResponse.data) {
-        // Create and trigger download of the HTML content
-        const blob = new Blob([webhookResponse.data], { type: 'text/html' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${action.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-proposal.html`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
-        alert('Proposal generated and downloaded successfully!');
-      } else {
-        throw new Error('Invalid response from proposal generation');
+      // Handle the response data
+      const proposalData = webhookResponse.data;
+      
+      // Log the structure of the response for debugging
+      console.log('Response type:', typeof proposalData);
+      console.log('Is array?', Array.isArray(proposalData));
+      if (Array.isArray(proposalData)) {
+        console.log('Array length:', proposalData.length);
+        console.log('First item:', proposalData[0]);
       }
-    } catch (error) {
+
+      // Check if we have a valid response with output
+      if (proposalData && typeof proposalData === 'object' && 'output' in proposalData) {
+        // Handle single object response
+        const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Grant Proposal - ${action.name}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #ffffff;
+        }
+        h2 {
+            color: #2563eb;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 8px;
+            margin-top: 24px;
+        }
+        p {
+            margin: 16px 0;
+            color: #374151;
+            font-size: 16px;
+        }
+    </style>
+</head>
+${proposalData.output}
+</html>`;
+
+        // Create the file name
+        const fileName = `${action.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-proposal.html`;
+
+        // Create blob
+        const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+        const url = window.URL.createObjectURL(blob);
+
+        // Create download link
+        const downloadLink = document.createElement('a');
+        downloadLink.href = url;
+        downloadLink.download = fileName;
+        downloadLink.style.display = 'none';
+        document.body.appendChild(downloadLink);
+
+        try {
+          // Trigger download
+          downloadLink.click();
+          
+          // Cleanup
+          setTimeout(() => {
+            document.body.removeChild(downloadLink);
+            window.URL.revokeObjectURL(url);
+          }, 1000);
+
+          console.log('Proposal downloaded successfully');
+        } catch (downloadError) {
+          console.error('Download error:', downloadError);
+          // Fallback: Open in new window
+          window.open(url, '_blank');
+          alert('Could not download automatically. Proposal opened in new tab - please save manually.');
+        }
+      } else if (Array.isArray(proposalData) && proposalData.length > 0 && proposalData[0].output) {
+        // Handle array response
+        const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Grant Proposal - ${action.name}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #ffffff;
+        }
+        h2 {
+            color: #2563eb;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 8px;
+            margin-top: 24px;
+        }
+        p {
+            margin: 16px 0;
+            color: #374151;
+            font-size: 16px;
+        }
+    </style>
+</head>
+${proposalData[0].output}
+</html>`;
+
+        // Create the file name
+        const fileName = `${action.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-proposal.html`;
+
+        // Create blob
+        const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+        const url = window.URL.createObjectURL(blob);
+
+        // Create download link
+        const downloadLink = document.createElement('a');
+        downloadLink.href = url;
+        downloadLink.download = fileName;
+        downloadLink.style.display = 'none';
+        document.body.appendChild(downloadLink);
+
+        try {
+          // Trigger download
+          downloadLink.click();
+          
+          // Cleanup
+          setTimeout(() => {
+            document.body.removeChild(downloadLink);
+            window.URL.revokeObjectURL(url);
+          }, 1000);
+
+          console.log('Proposal downloaded successfully');
+        } catch (downloadError) {
+          console.error('Download error:', downloadError);
+          // Fallback: Open in new window
+          window.open(url, '_blank');
+          alert('Could not download automatically. Proposal opened in new tab - please save manually.');
+        }
+      } else {
+        console.error('Invalid response format:', proposalData);
+        throw new Error('Invalid response format from proposal generation');
+      }
+    } catch (error: any) {
       console.error('Error in proposal generation:', error);
-      alert('Failed to generate proposal. Please try again.');
+      let errorMessage = 'Failed to generate proposal. Please try again.';
+      
+      if (error.response) {
+        // Server responded with error
+        console.error('Server error details:', {
+          status: error.response.status,
+          data: error.response.data,
+          headers: error.response.headers
+        });
+        errorMessage = `Server error: ${error.response.status} - ${JSON.stringify(error.response.data)}`;
+      } else if (error.request) {
+        // Request made but no response
+        console.error('No response received:', {
+          request: error.request,
+          config: error.config
+        });
+        errorMessage = 'No response received from server. Please check your connection and try again.';
+      } else {
+        // Error in request setup
+        console.error('Request setup error:', error.message);
+        errorMessage = `Error: ${error.message}`;
+      }
+      
+      alert(errorMessage);
+    } finally {
+      setIsGeneratingProposal(false);
     }
   };
 
@@ -294,13 +447,26 @@ export default function GrantSearch() {
               <p class="text-gray-200 text-lg leading-relaxed mb-4">${content}</p>
               <div class="flex flex-wrap gap-4 mt-4">
                 <button 
-                  onclick='window.handleGenerateProposal({ "name": "${grantTitle}", "link": "${grantLink}" })'
-                  class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md"
+                  onClick={() => handleGenerateProposal({ name: grantTitle, link: grantLink })}
+                  disabled={isGeneratingProposal}
+                  className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md disabled:bg-gray-600 disabled:cursor-not-allowed"
                 >
-                  <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Generate Proposal
+                  {isGeneratingProposal ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Generating Proposal...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Generate Proposal
+                    </>
+                  )}
                 </button>
               </div>
             </div>`;
@@ -545,12 +711,25 @@ export default function GrantSearch() {
                       <div className="flex flex-wrap gap-4 mt-4">
                         <button 
                           onClick={() => handleGenerateProposal({ name: grant.title, link: grant.link })}
-                          className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md"
+                          disabled={isGeneratingProposal}
+                          className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md disabled:bg-gray-600 disabled:cursor-not-allowed"
                         >
-                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          Generate Proposal
+                          {isGeneratingProposal ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Generating Proposal...
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              Generate Proposal
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>
