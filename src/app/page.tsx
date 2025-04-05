@@ -48,6 +48,8 @@ export default function GrantSearch() {
   const [selectedGrants, setSelectedGrants] = useState<GrantSelection[]>([]);
   const [htmlTemplate, setHtmlTemplate] = useState<string>('');
   const [analyzedGrants, setAnalyzedGrants] = useState<GrantAnalysis[]>([]);
+  const [stateOptions, setStateOptions] = useState<SelectOption[]>([]);
+  const [focusAreaOptions, setFocusAreaOptions] = useState<SelectOption[]>([]);
 
   useEffect(() => {
     console.log('useEffect triggered'); // Debug: Effect trigger
@@ -65,23 +67,20 @@ export default function GrantSearch() {
         console.log('Raw API response:', response.data); // Debug: Full response
         
         if (response.data && Array.isArray(response.data.states) && Array.isArray(response.data.focus_areas)) {
-          console.log('Data validation passed, setting state...'); // Debug: Pre-state update
+          console.log('Valid response format with states and focus areas');
+          setStateOptions(response.data.states.map((state: string) => ({ value: state, label: state })));
+          setFocusAreaOptions(response.data.focus_areas.map((area: string) => ({ value: area, label: area })));
           setSearchItems({
             states: response.data.states,
             focus_areas: response.data.focus_areas
           });
-          console.log('State updated with:', {
-            states: response.data.states.length,
-            focus_areas: response.data.focus_areas.length
-          }); // Debug: Post-state update
         } else {
           console.error('Invalid response format:', response.data);
         }
-      } catch (err) {
-        console.error('Error fetching search items:', err);
+      } catch (error) {
+        console.error('API request failed:', error);
       } finally {
         setIsInitialLoading(false);
-        console.log('Initial loading completed'); // Debug: Loading state
       }
     };
 
@@ -93,31 +92,25 @@ export default function GrantSearch() {
     console.log('Current searchItems state:', searchItems);
   }, [searchItems]);
 
-  // Debug: Options creation
-  const stateOptions = searchItems.states.map(state => {
-    console.log('Creating state option:', state);
-    return { value: state, label: state };
-  });
-  
-  const focusAreaOptions = searchItems.focus_areas.map(area => {
-    console.log('Creating focus area option:', area);
-    return { value: area, label: area };
-  });
-
   console.log('Final options:', { 
     stateOptions: stateOptions.length, 
     focusAreaOptions: focusAreaOptions.length 
   }); // Debug: Final options count
 
   const handleSearch = async () => {
+    if (!selectedStates.length || !selectedFocusAreas.length) {
+      alert('Please select both states and focus areas');
+      return;
+    }
+
     setIsLoading(true);
-    setResults('');
-    setSearchResponse(null);
-    setAnalysisResults('');
-    setAnalyzedGrants([]); // Clear any previous analyzed grants
-    
+    setResults(''); // Clear previous results
     try {
-      console.log('Sending search request with:', { selectedStates, selectedFocusAreas });
+      console.log('Sending search request with:', {
+        states: selectedStates,
+        focus_areas: selectedFocusAreas
+      });
+      
       const response = await axios.post('/api/scrape-multiple', {
         username: API_CONFIG.CREDENTIALS.username,
         password: API_CONFIG.CREDENTIALS.password,
@@ -127,56 +120,27 @@ export default function GrantSearch() {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
-        },
-        timeout: 30000 // 30 seconds timeout
+        }
       });
 
       console.log('Search response:', response.data);
-
-      if (response.data && response.data.data) {
-        // Store the search response for analysis
-        setSearchResponse(response.data);
-        
-        // Format and display the initial results
+      setSearchResponse(response.data); // Store complete response for analysis
+      
+      // Format and display just the grant titles
+      if (response.data && response.data.data && Array.isArray(response.data.data)) {
         const titles = `Available Grants (${response.data.data.length} results found):\n\n` + 
           response.data.data.map((item: any, index: number) => {
             return `${index + 1}. ${item.title}`;
           }).join('\n');
-        
         setResults(titles);
       } else {
-        console.log('No data in response or invalid format:', response.data);
-        setResults('No grants found');
+        setResults('No grants found or invalid response format');
       }
     } catch (error) {
-      const err = error as { 
-        message: string; 
-        code?: string; 
-        response?: { 
-          data: any; 
-          status: number; 
-        } 
-      };
-
-      console.error('Error details:', {
-        message: err.message,
-        code: err.code,
-        response: err.response?.data,
-        status: err.response?.status
-      });
-      
-      if (err.code === 'ECONNABORTED') {
-        setResults('Request timed out. Please try again.');
-      } else if (err.response?.status === 404) {
-        setResults('API endpoint not found. Please check the server configuration.');
-      } else if (err.response?.status === 401) {
-        setResults('Authentication failed. Please check credentials.');
-      } else {
-        setResults(`Error occurred while searching grants: ${err.message}`);
-      }
+      console.error('Search error:', error);
+      setResults('Error during search. Please try again.');
     } finally {
       setIsLoading(false);
-      console.log('Search operation completed');
     }
   };
 
@@ -205,7 +169,7 @@ export default function GrantSearch() {
       console.log('Sending complete search response for analysis:', searchResponse);
       
       const response = await axios.post(
-        'http://localhost:5678/webhook/7331ee44-831d-459a-8dc1-082e87b9663b',
+        `${API_CONFIG.WEBHOOK_URL}${API_CONFIG.ENDPOINTS.ANALYZE_WEBHOOK}`,
         searchResponse,
         {
           headers: {
@@ -247,7 +211,6 @@ export default function GrantSearch() {
   // Function to handle grant proposal generation
   const handleGenerateProposal = async (action: GrantAction) => {
     try {
-      // Endpoint will be provided later - using placeholder for now
       const endpoint = `${API_CONFIG.BACKEND_URL}/generate-proposal`;
       
       await axios.post(endpoint, {
@@ -255,7 +218,6 @@ export default function GrantSearch() {
         grantLink: action.link
       });
       
-      // Show success message
       alert(`Successfully requested proposal generation for ${action.name}`);
     } catch (error) {
       console.error('Error:', error);
@@ -318,13 +280,46 @@ export default function GrantSearch() {
   }, []);
 
   const handleDownloadReport = () => {
-    if (!analysisResults) return;
+    if (!analyzedGrants.length) return;
     
-    const blob = new Blob([analysisResults], { type: 'text/html' });
+    // Create HTML content
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Grant Analysis Results</title>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
+          .grant { margin-bottom: 40px; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
+          .title { font-size: 24px; font-weight: bold; color: #333; margin-bottom: 15px; }
+          .description { font-size: 16px; line-height: 1.6; color: #444; margin-bottom: 15px; }
+          .score { font-size: 18px; font-weight: bold; color: #2563eb; margin-bottom: 15px; }
+          .link { color: #2563eb; text-decoration: none; }
+          .link:hover { text-decoration: underline; }
+        </style>
+      </head>
+      <body>
+        <h1>Grant Analysis Results</h1>
+        ${analyzedGrants.map(grant => `
+          <div class="grant">
+            <div class="title">${grant.title}</div>
+            <div class="description">${grant.description}</div>
+            <div class="score">Relevance Score: ${grant.score}/100</div>
+            <div>
+              <a href="${grant.link}" class="link" target="_blank">View Grant Details</a>
+            </div>
+          </div>
+        `).join('')}
+      </body>
+      </html>
+    `;
+    
+    // Create and download the file
+    const blob = new Blob([htmlContent], { type: 'text/html' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'grant-analysis-report.html';
+    a.download = 'grant-analysis-results.html';
     document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(url);
@@ -494,7 +489,7 @@ export default function GrantSearch() {
                       <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
-                      Download Report
+                      Download Analyze Results
                     </button>
                   </div>
 
