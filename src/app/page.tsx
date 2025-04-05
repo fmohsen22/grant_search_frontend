@@ -211,9 +211,10 @@ export default function GrantSearch() {
   // Function to handle grant proposal generation
   const handleGenerateProposal = async (action: GrantAction) => {
     try {
-      console.log('Generating proposal for grant:', action.name);
+      console.log('Step 1: Scraping grant details for:', action.name);
       
-      const response = await axios.post('/api/scrape-grant-detail', {
+      // First request: Scrape grant details
+      const scrapeResponse = await axios.post('/api/scrape-grant-detail', {
         endpoint: action.link
       }, {
         headers: {
@@ -222,15 +223,45 @@ export default function GrantSearch() {
         }
       });
 
-      console.log('Generate proposal response:', response.data);
+      console.log('Scrape response:', scrapeResponse.data);
       
-      if (response.data && response.data.status === 'success') {
-        alert(`Successfully generated proposal for ${action.name}`);
+      if (!scrapeResponse.data) {
+        throw new Error('Failed to scrape grant details');
+      }
+
+      console.log('Step 2: Sending scraped data to webhook for analysis');
+
+      // Second request: Send scraped data to webhook
+      const webhookResponse = await axios.post(
+        `${API_CONFIG.WEBHOOK_URL}${API_CONFIG.ENDPOINTS.PROPOSAL_WEBHOOK}`,
+        scrapeResponse.data,
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log('Webhook response received');
+
+      if (webhookResponse.data) {
+        // Create and trigger download of the HTML content
+        const blob = new Blob([webhookResponse.data], { type: 'text/html' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${action.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-proposal.html`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        alert('Proposal generated and downloaded successfully!');
       } else {
-        throw new Error('Failed to generate proposal');
+        throw new Error('Invalid response from proposal generation');
       }
     } catch (error) {
-      console.error('Error generating proposal:', error);
+      console.error('Error in proposal generation:', error);
       alert('Failed to generate proposal. Please try again.');
     }
   };
