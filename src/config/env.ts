@@ -4,8 +4,8 @@ export const API_CONFIG = {
   ENDPOINTS: {
     SEARCH_ITEMS: '/extract_search_items',
     SCRAPE_MULTIPLE: '/scrape-multiple',
-    ANALYZE_WEBHOOK: '/webhook/7331ee44-831d-459a-8dc1-082e87b9663b',
-    PROPOSAL_WEBHOOK: '/webhook/7072178c-479a-4245-8c04-6b0e45af976e'
+    ANALYZE_WEBHOOK: 'http://localhost:8000/rank-grants',
+    PROPOSAL_WEBHOOK: 'http://localhost:8000/scrape-grant-detail'
   },
   CREDENTIALS: {
     username: process.env.NEXT_PUBLIC_API_USERNAME || 'info@noroozclinic.com',

@@ -1,5 +1,7 @@
+/// <reference types="react" />
 'use client';
 
+import React from 'react';
 import { useState, useEffect } from 'react';
 import Select, { MultiValue } from 'react-select';
 import axios from 'axios';
@@ -28,8 +30,11 @@ interface GrantAction {
 
 interface GrantAnalysis {
   title: string;
-  description: string;
-  score: number;
+  deadline: string;
+  amount: string;
+  short_overview: string;
+  why_relevant: string;
+  relevance_score: number;
   link: string;
 }
 
@@ -159,261 +164,59 @@ export default function GrantSearch() {
     }, 2);
   };
 
-  const handleAnalyze = async () => {
-    if (!searchResponse) {
-      console.log('No search response to analyze');
-      return;
-    }
-
-    setIsLoading(true);
+  const handleRankGrants = async () => {
+    setIsAnalyzing(true);
+    setResults('');
+    
     try {
-      console.log('Sending complete search response for analysis:', searchResponse);
-      
-      const response = await axios.post(
-        `${API_CONFIG.WEBHOOK_URL}${API_CONFIG.ENDPOINTS.ANALYZE_WEBHOOK}`,
-        searchResponse,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-      
-      console.log('Analysis response:', response.data);
-      
-      if (response.data && response.data.output) {
-        try {
-          const parsedOutput = JSON.parse(response.data.output);
-          console.log('Parsed analysis results:', parsedOutput);
-          
-          if (parsedOutput.grants && Array.isArray(parsedOutput.grants)) {
-            setAnalyzedGrants(parsedOutput.grants);
-            setResults(''); // Clear the search results to show analyzed grants
-          } else {
-            console.error('Invalid analysis format:', parsedOutput);
-            setResults('Error: Invalid analysis response format');
-          }
-        } catch (parseError) {
-          console.error('Error parsing output JSON:', parseError);
-          setResults('Error: Could not parse analysis results');
-        }
-      } else {
-        console.error('Invalid response format:', response.data);
-        setResults('Error: Invalid response from analysis service');
-      }
+      const response = await fetch('http://localhost:8000/rank-grants');
+      const data = await response.json();
+      setAnalyzedGrants(data);
     } catch (error) {
-      console.error('Analysis error:', error);
-      setResults('Error during analysis. Please try again.');
+      console.error('Error:', error);
+      setResults('Failed to rank grants. Please check if the backend server is running.');
     } finally {
-      setIsLoading(false);
+      setIsAnalyzing(false);
     }
   };
 
   // Function to handle grant proposal generation
-  const handleGenerateProposal = async (action: GrantAction) => {
+  const handleGenerateProposal = async ({ name, link }: GrantAction) => {
     setIsGeneratingProposal(true);
     try {
-      console.log('Step 1: Scraping grant details for:', action.name, 'Link:', action.link);
-      
-      // First request: Scrape grant details through the Next.js proxy
-      const scrapeResponse = await axios.post('/api/scrape-grant-detail', {
-        endpoint: action.link,
-        username: API_CONFIG.CREDENTIALS.username,
-        password: API_CONFIG.CREDENTIALS.password
+      const response = await fetch('http://localhost:8000/scrape-grant-detail', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          endpoint: link
+        })
       });
 
-      console.log('Scrape response:', scrapeResponse.data);
-      
-      if (!scrapeResponse.data) {
-        throw new Error('Failed to scrape grant details - empty response');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      console.log('Step 2: Sending scraped data to webhook for proposal generation');
-
-      // Second request: Send scraped data to webhook through the Next.js proxy
-      const webhookResponse = await axios.post(
-        '/api/webhook/7072178c-479a-4245-8c04-6b0e45af976e',
-        scrapeResponse.data,
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      console.log('Raw webhook response:', webhookResponse);
-      console.log('Webhook response data:', webhookResponse.data);
-
-      // Handle the response data
-      const proposalData = webhookResponse.data;
+      const data = await response.text();
       
-      // Log the structure of the response for debugging
-      console.log('Response type:', typeof proposalData);
-      console.log('Is array?', Array.isArray(proposalData));
-      if (Array.isArray(proposalData)) {
-        console.log('Array length:', proposalData.length);
-        console.log('First item:', proposalData[0]);
-      }
-
-      // Check if we have a valid response with output
-      if (proposalData && typeof proposalData === 'object' && 'output' in proposalData) {
-        // Handle single object response
-        const htmlContent = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Grant Proposal - ${action.name}</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 40px auto;
-            padding: 20px;
-            background-color: #ffffff;
-        }
-        h2 {
-            color: #2563eb;
-            border-bottom: 2px solid #e5e7eb;
-            padding-bottom: 8px;
-            margin-top: 24px;
-        }
-        p {
-            margin: 16px 0;
-            color: #374151;
-            font-size: 16px;
-        }
-    </style>
-</head>
-${proposalData.output}
-</html>`;
-
-        // Create the file name
-        const fileName = `${action.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-proposal.html`;
-
-        // Create blob
-        const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-        const url = window.URL.createObjectURL(blob);
-
-        // Create download link
-        const downloadLink = document.createElement('a');
-        downloadLink.href = url;
-        downloadLink.download = fileName;
-        downloadLink.style.display = 'none';
-        document.body.appendChild(downloadLink);
-
-        try {
-          // Trigger download
-          downloadLink.click();
-          
-          // Cleanup
-          setTimeout(() => {
-            document.body.removeChild(downloadLink);
-            window.URL.revokeObjectURL(url);
-          }, 1000);
-
-          console.log('Proposal downloaded successfully');
-        } catch (downloadError) {
-          console.error('Download error:', downloadError);
-          // Fallback: Open in new window
-          window.open(url, '_blank');
-          alert('Could not download automatically. Proposal opened in new tab - please save manually.');
-        }
-      } else if (Array.isArray(proposalData) && proposalData.length > 0 && proposalData[0].output) {
-        // Handle array response
-        const htmlContent = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Grant Proposal - ${action.name}</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 40px auto;
-            padding: 20px;
-            background-color: #ffffff;
-        }
-        h2 {
-            color: #2563eb;
-            border-bottom: 2px solid #e5e7eb;
-            padding-bottom: 8px;
-            margin-top: 24px;
-        }
-        p {
-            margin: 16px 0;
-            color: #374151;
-            font-size: 16px;
-        }
-    </style>
-</head>
-${proposalData[0].output}
-</html>`;
-
-        // Create the file name
-        const fileName = `${action.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-proposal.html`;
-
-        // Create blob
-        const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-        const url = window.URL.createObjectURL(blob);
-
-        // Create download link
-        const downloadLink = document.createElement('a');
-        downloadLink.href = url;
-        downloadLink.download = fileName;
-        downloadLink.style.display = 'none';
-        document.body.appendChild(downloadLink);
-
-        try {
-          // Trigger download
-          downloadLink.click();
-          
-          // Cleanup
-          setTimeout(() => {
-            document.body.removeChild(downloadLink);
-            window.URL.revokeObjectURL(url);
-          }, 1000);
-
-          console.log('Proposal downloaded successfully');
-        } catch (downloadError) {
-          console.error('Download error:', downloadError);
-          // Fallback: Open in new window
-          window.open(url, '_blank');
-          alert('Could not download automatically. Proposal opened in new tab - please save manually.');
-        }
-      } else {
-        console.error('Invalid response format:', proposalData);
-        throw new Error('Invalid response format from proposal generation');
-      }
-    } catch (error: any) {
-      console.error('Error in proposal generation:', error);
-      let errorMessage = 'Failed to generate proposal. Please try again.';
+      // Create file name from grant name
+      const fileName = `${name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_proposal.txt`;
       
-      if (error.response) {
-        // Server responded with error
-        console.error('Server error details:', {
-          status: error.response.status,
-          data: error.response.data,
-          headers: error.response.headers
-        });
-        errorMessage = `Server error: ${error.response.status} - ${JSON.stringify(error.response.data)}`;
-      } else if (error.request) {
-        // Request made but no response
-        console.error('No response received:', {
-          request: error.request,
-          config: error.config
-        });
-        errorMessage = 'No response received from server. Please check your connection and try again.';
-      } else {
-        // Error in request setup
-        console.error('Request setup error:', error.message);
-        errorMessage = `Error: ${error.message}`;
-      }
-      
-      alert(errorMessage);
+      // Create and download the file
+      const blob = new Blob([data], { type: 'text/plain;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+    } catch (error) {
+      console.error('Error generating proposal:', error);
+      alert('Failed to generate proposal. Please try again.');
     } finally {
       setIsGeneratingProposal(false);
     }
@@ -496,25 +299,121 @@ ${proposalData[0].output}
       <head>
         <title>Grant Analysis Results</title>
         <style>
-          body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
-          .grant { margin-bottom: 40px; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
-          .title { font-size: 24px; font-weight: bold; color: #333; margin-bottom: 15px; }
-          .description { font-size: 16px; line-height: 1.6; color: #444; margin-bottom: 15px; }
-          .score { font-size: 18px; font-weight: bold; color: #2563eb; margin-bottom: 15px; }
-          .link { color: #2563eb; text-decoration: none; }
-          .link:hover { text-decoration: underline; }
+          body { 
+            font-family: Arial, sans-serif; 
+            max-width: 1000px; 
+            margin: 40px auto; 
+            padding: 20px;
+            background-color: #1a1b1e;
+            color: #ffffff;
+          }
+          h1 {
+            font-size: 32px;
+            margin-bottom: 24px;
+            color: #ffffff;
+          }
+          .grant {
+            background-color: rgba(55, 65, 81, 0.3);
+            border: 1px solid #4b5563;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+          }
+          .grant-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ffffff;
+            margin-bottom: 16px;
+          }
+          .grant-meta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+          }
+          .meta-item {
+            display: flex;
+            align-items: center;
+          }
+          .meta-label {
+            color: #60a5fa;
+            font-weight: 500;
+            margin-right: 8px;
+          }
+          .meta-value {
+            color: #e5e7eb;
+          }
+          .section {
+            margin-bottom: 16px;
+          }
+          .section-title {
+            color: #60a5fa;
+            font-weight: 500;
+            margin-bottom: 8px;
+          }
+          .section-content {
+            color: #e5e7eb;
+            font-size: 16px;
+            line-height: 1.6;
+          }
+          .score {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+          }
+          .score-label {
+            color: #60a5fa;
+            font-weight: 600;
+            font-size: 18px;
+            margin-right: 8px;
+          }
+          .score-value {
+            color: #ffffff;
+            font-size: 24px;
+            font-weight: bold;
+          }
+          .grant-link {
+            color: #60a5fa;
+            text-decoration: none;
+          }
+          .grant-link:hover {
+            text-decoration: underline;
+          }
         </style>
       </head>
       <body>
         <h1>Grant Analysis Results</h1>
         ${analyzedGrants.map(grant => `
           <div class="grant">
-            <div class="title">${grant.title}</div>
-            <div class="description">${grant.description}</div>
-            <div class="score">Relevance Score: ${grant.score}/100</div>
-            <div>
-              <a href="${grant.link}" class="link" target="_blank">View Grant Details</a>
+            <div class="grant-title">${grant.title}</div>
+            
+            <div class="grant-meta">
+              <div class="meta-item">
+                <span class="meta-label">Deadline:</span>
+                <span class="meta-value">${grant.deadline}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Amount:</span>
+                <span class="meta-value">${grant.amount}</span>
+              </div>
             </div>
+
+            <div class="section">
+              <div class="section-title">Overview</div>
+              <div class="section-content">${grant.short_overview}</div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Relevance Analysis</div>
+              <div class="section-content">${grant.why_relevant}</div>
+            </div>
+
+            <div class="score">
+              <span class="score-label">Match Score:</span>
+              <span class="score-value">${grant.relevance_score}/100</span>
+            </div>
+
+            <a href="${grant.link}" class="grant-link" target="_blank">View Grant Details</a>
           </div>
         `).join('')}
       </body>
@@ -703,12 +602,42 @@ ${proposalData[0].output}
                   {analyzedGrants.map((grant, index) => (
                     <div key={index} className="grant-item bg-gray-700/30 rounded-lg p-6 border border-gray-600">
                       <h3 className="text-2xl font-bold text-white mb-4">{grant.title}</h3>
-                      <p className="text-gray-200 text-lg leading-relaxed mb-4">{grant.description}</p>
-                      <p className="text-lg font-semibold text-blue-400 mb-4">Score: {grant.score}/100</p>
-                      <p className="text-gray-200 text-lg leading-relaxed mb-4">
-                        Link to grant: <a href={grant.link} className="text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">{grant.link}</a>
-                      </p>
-                      <div className="flex flex-wrap gap-4 mt-4">
+                      
+                      <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div className="flex items-center">
+                          <span className="text-blue-400 font-medium mr-2">Deadline:</span>
+                          <span className="text-gray-200">{grant.deadline}</span>
+                        </div>
+                        <div className="flex items-center">
+                          <span className="text-blue-400 font-medium mr-2">Amount:</span>
+                          <span className="text-gray-200">{grant.amount}</span>
+                        </div>
+                      </div>
+
+                      <div className="mb-4">
+                        <h4 className="text-blue-400 font-medium mb-2">Overview</h4>
+                        <p className="text-gray-200 text-lg leading-relaxed">{grant.short_overview}</p>
+                      </div>
+
+                      <div className="mb-4">
+                        <h4 className="text-blue-400 font-medium mb-2">Relevance Analysis</h4>
+                        <p className="text-gray-200 text-lg leading-relaxed">{grant.why_relevant}</p>
+                      </div>
+
+                      <div className="flex items-center mb-4">
+                        <span className="text-lg font-semibold text-blue-400 mr-2">Match Score:</span>
+                        <span className="text-2xl font-bold text-white">{grant.relevance_score}/100</span>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-6">
+                        <a 
+                          href={grant.link} 
+                          className="text-blue-400 hover:text-blue-300 underline"
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                        >
+                          View Grant Details
+                        </a>
                         <button 
                           onClick={() => handleGenerateProposal({ name: grant.title, link: grant.link })}
                           disabled={isGeneratingProposal}
@@ -741,13 +670,12 @@ ${proposalData[0].output}
                     {results}
                   </div>
                   <button
-                    onClick={handleAnalyze}
+                    onClick={handleRankGrants}
+                    disabled={isAnalyzing}
                     className="inline-flex items-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md"
                   >
-                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
-                    Analyze Results
+                    <span className="material-icons">analytics</span>
+                    {isAnalyzing ? 'Ranking...' : 'Rank Grants'}
                   </button>
                 </div>
               ) : (
