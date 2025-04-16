@@ -2,14 +2,16 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
-    const response = await fetch('https://norooz-backend.fly.dev/extract_search_items', {
+    const response = await fetch('https://norooz-backend.fly.dev/rank-grants', {
       headers: {
         'Origin': 'http://localhost:3000'
       }
     });
+    
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
+    
     const data = await response.json();
     return NextResponse.json(data, {
       headers: {
@@ -19,9 +21,9 @@ export async function GET() {
       }
     });
   } catch (error) {
-    console.error('API Route: Detailed error information:', error);
+    console.error('API Route Error:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch search items' }, 
+      { error: 'Failed to rank grants' }, 
       { 
         status: 500,
         headers: {
@@ -34,7 +36,6 @@ export async function GET() {
   }
 }
 
-// Handle OPTIONS request for CORS preflight
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,

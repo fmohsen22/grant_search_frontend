@@ -1,61 +1,25 @@
 import { NextResponse } from 'next/server';
-import axios from 'axios';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     
-    console.log('Proxying request to backend:', body);
-
-    const response = await axios.post('http://127.0.0.1:8000/scrape-multiple', body, {
+    const response = await fetch('https://norooz-backend.fly.dev/scrape-multiple', {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json'
       },
-      timeout: 10000 // 10 second timeout
+      body: JSON.stringify(body)
     });
 
-    console.log('Backend response:', response.data);
-    
-    return NextResponse.json(response.data);
-  } catch (error: any) {
-    console.error('Backend request failed:', {
-      message: error.message,
-      response: error.response?.data,
-      status: error.response?.status,
-      config: error.config
-    });
-
-    // If we got a response from the server
-    if (error.response) {
-      return NextResponse.json(
-        { 
-          error: 'Backend server error',
-          details: error.response.data,
-          status: error.response.status
-        },
-        { status: error.response.status }
-      );
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // If the request was made but no response was received
-    if (error.request) {
-      return NextResponse.json(
-        { 
-          error: 'No response from backend',
-          details: 'Could not connect to the backend server. Please ensure it is running.'
-        },
-        { status: 503 }
-      );
-    }
-
-    // Something happened in setting up the request
-    return NextResponse.json(
-      { 
-        error: 'Request setup error',
-        details: error.message 
-      },
-      { status: 500 }
-    );
+    const data = await response.json();
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error('API Route: Error:', error);
+    return NextResponse.json({ error: 'Failed to scrape grants' }, { status: 500 });
   }
 } 

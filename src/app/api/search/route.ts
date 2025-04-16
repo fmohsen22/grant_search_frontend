@@ -1,15 +1,21 @@
 import { NextResponse } from 'next/server';
 
-export async function GET() {
+export async function POST(req: Request) {
   try {
-    const response = await fetch('https://norooz-backend.fly.dev/extract_search_items', {
+    const body = await req.json();
+    const response = await fetch('https://norooz-backend.fly.dev/search', {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'Origin': 'http://localhost:3000'
-      }
+      },
+      body: JSON.stringify(body)
     });
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
+
     const data = await response.json();
     return NextResponse.json(data, {
       headers: {
@@ -19,9 +25,9 @@ export async function GET() {
       }
     });
   } catch (error) {
-    console.error('API Route: Detailed error information:', error);
+    console.error('Search API Route Error:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch search items' }, 
+      { error: 'Failed to perform search' },
       { 
         status: 500,
         headers: {
@@ -34,7 +40,6 @@ export async function GET() {
   }
 }
 
-// Handle OPTIONS request for CORS preflight
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,

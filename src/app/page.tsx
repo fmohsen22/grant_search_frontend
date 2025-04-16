@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import Select, { MultiValue } from 'react-select';
 import axios from 'axios';
 import { API_CONFIG } from '../config/env';
+import Link from 'next/link';
 
 interface SearchItems {
   states: string[];
@@ -169,7 +170,7 @@ export default function GrantSearch() {
     setResults('');
     
     try {
-      const response = await fetch('http://localhost:8000/rank-grants');
+      const response = await fetch('https://norooz-backend.fly.dev/rank-grants');
       const data = await response.json();
       setAnalyzedGrants(data);
     } catch (error) {
@@ -184,7 +185,7 @@ export default function GrantSearch() {
   const handleGenerateProposal = async ({ name, link }: GrantAction) => {
     setIsGeneratingProposal(true);
     try {
-      const response = await fetch('http://localhost:8000/scrape-grant-detail', {
+      const response = await fetch('https://norooz-backend.fly.dev/scrape-grant-detail', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -555,18 +556,27 @@ export default function GrantSearch() {
                   />
                 </div>
 
-                <button
-                  onClick={handleSearch}
-                  disabled={isLoading || (!selectedStates.length && !selectedFocusAreas.length)}
-                  className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md disabled:shadow-none"
-                >
-                  {isLoading ? (
-                    <span className="flex items-center justify-center">
-                      <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></span>
-                      Searching...
-                    </span>
-                  ) : 'Search Grants'}
-                </button>
+                <div className="space-y-4">
+                  <button
+                    onClick={handleSearch}
+                    disabled={isLoading || (!selectedStates.length && !selectedFocusAreas.length)}
+                    className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md disabled:shadow-none"
+                  >
+                    {isLoading ? (
+                      <span className="flex items-center justify-center">
+                        <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></span>
+                        Searching...
+                      </span>
+                    ) : 'Search Grants'}
+                  </button>
+
+                  <Link
+                    href="/grant-history"
+                    className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md text-center block"
+                  >
+                    View Grant History
+                  </Link>
+                </div>
               </div>
             </div>
           </div>
