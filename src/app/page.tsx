@@ -127,7 +127,7 @@ export default function GrantSearch() {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
-        }
+        },timeout: 120000  
       });
 
       console.log('Search response:', response.data);

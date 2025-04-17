@@ -9,7 +9,8 @@ export async function POST(request: Request) {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120000) // 2 minute timeout
     });
 
     if (!response.ok) {
