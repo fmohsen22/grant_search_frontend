@@ -118,7 +118,7 @@ export default function GrantSearch() {
         focus_areas: selectedFocusAreas
       });
       
-      const response = await axios.post('/api/scrape-multiple', {
+      const response = await axios.post('https://norooz-backend.fly.dev/scrape-multiple', {
         username: API_CONFIG.CREDENTIALS.username,
         password: API_CONFIG.CREDENTIALS.password,
         states: selectedStates,
@@ -127,7 +127,8 @@ export default function GrantSearch() {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
-        },timeout: 120000  
+        },
+        timeout: 300000 // 5 minute timeout
       });
 
       console.log('Search response:', response.data);

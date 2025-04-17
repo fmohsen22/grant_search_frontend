@@ -5,8 +5,8 @@ const nextConfig = {
   async rewrites() {
     return [
       {
-        source: '/api/:path*',
-        destination: 'https://norooz-backend.fly.dev/:path*'
+        source: '/api/rank-grants',
+        destination: 'https://norooz-backend.fly.dev/rank-grants'
       }
     ]
   }
