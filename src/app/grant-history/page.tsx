@@ -28,11 +28,26 @@ interface ExpandedOverviews {
   [key: string]: boolean;
 }
 
+interface GrantApplication {
+  application_id: number;
+  applied: boolean;
+  proposal_filename: string;
+  application_created_at: string;
+  grant_id: number;
+  title: string;
+  overview: string;
+  funder: string;
+  url: string;
+  deadline: string | null;
+}
+
 export default function GrantHistory() {
   const [grants, setGrants] = useState<GrantWithApplication[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedOverviews, setExpandedOverviews] = useState<ExpandedOverviews>({});
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
     fetchGrants();
@@ -160,6 +175,106 @@ export default function GrantHistory() {
     return new Date(dateString).toISOString().split('T')[0];
   };
 
+  const handleDownloadTable = async () => {
+    setIsDownloading(true);
+    try {
+      const response = await fetch('https://norooz-backend.fly.dev/export-grants-applications', {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'Origin': 'http://localhost:3000'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      // Define CSV headers
+      const headers = [
+        'Application ID',
+        'Title',
+        'Applied',
+        'Created At',
+        'Proposal File',
+        'Overview',
+        'Funder',
+        'URL',
+        'Deadline'
+      ].join(',');
+
+      // Convert data to CSV rows
+      const csvRows = data.map((item: GrantApplication) => {
+        // Escape fields that might contain commas
+        const escapeCsvField = (field: string) => {
+          if (field && (field.includes(',') || field.includes('"') || field.includes('\n'))) {
+            return `"${field.replace(/"/g, '""')}"`;
+          }
+          return field || '';
+        };
+
+        return [
+          item.application_id,
+          escapeCsvField(item.title),
+          item.applied,
+          new Date(item.application_created_at).toLocaleString(),
+          escapeCsvField(item.proposal_filename),
+          escapeCsvField(item.overview),
+          escapeCsvField(item.funder),
+          escapeCsvField(item.url),
+          item.deadline ? escapeCsvField(item.deadline) : ''
+        ].join(',');
+      });
+
+      // Combine headers and rows
+      const csvContent = [headers, ...csvRows].join('\n');
+
+      // Create and download the CSV file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `grant_history_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading table:', error);
+      alert('Failed to download table data. Please try again.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleResetTable = async () => {
+    if (!confirm('Are you sure you want to reset the table? This action cannot be undone.')) {
+      return;
+    }
+
+    setIsResetting(true);
+    try {
+      const response = await fetch('https://norooz-backend.fly.dev/delete-grants-applications', {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // Refresh the page to show the empty table
+      window.location.reload();
+    } catch (error) {
+      console.error('Error resetting table:', error);
+      alert('Failed to reset table. Please try again.');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-900 p-6">
@@ -186,19 +301,70 @@ export default function GrantHistory() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 p-6">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-white">Grant History</h1>
-          <Link 
-            href="/"
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
-          >
-            Back to Search
-          </Link>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-4xl font-bold text-white">Grant History</h1>
+          <div className="flex gap-4">
+            <button
+              onClick={handleDownloadTable}
+              disabled={isDownloading}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center disabled:bg-gray-600 disabled:cursor-not-allowed"
+            >
+              {isDownloading ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Downloading...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download Table
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={handleResetTable}
+              disabled={isResetting}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center disabled:bg-gray-600 disabled:cursor-not-allowed"
+            >
+              {isResetting ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Resetting...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Reset Table
+                </>
+              )}
+            </button>
+
+            <Link 
+              href="/"
+              className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors flex items-center"
+            >
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Back to Search
+            </Link>
+          </div>
         </div>
 
-        <div className="bg-gray-800 rounded-xl shadow-lg overflow-hidden">
+        <div className="bg-gray-800 rounded-xl shadow-lg overflow-hidden mt-8">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
