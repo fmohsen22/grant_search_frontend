@@ -57,6 +57,10 @@ export default function GrantSearch() {
   const [stateOptions, setStateOptions] = useState<SelectOption[]>([]);
   const [focusAreaOptions, setFocusAreaOptions] = useState<SelectOption[]>([]);
   const [isGeneratingProposal, setIsGeneratingProposal] = useState<boolean>(false);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(false);
+  const [savedResults, setSavedResults] = useState<string>('');
+  const [savedSearchTime, setSavedSearchTime] = useState<string>('');
+  const [isGeneratingRFP, setIsGeneratingRFP] = useState<boolean>(false);
 
   useEffect(() => {
     console.log('useEffect triggered'); // Debug: Effect trigger
@@ -112,6 +116,7 @@ export default function GrantSearch() {
 
     setIsLoading(true);
     setResults(''); // Clear previous results
+    setAnalyzedGrants([]); // Clear previous analyzed grants
     try {
       console.log('Sending search request with:', {
         states: selectedStates,
@@ -171,12 +176,27 @@ export default function GrantSearch() {
     setResults('');
     
     try {
-      const response = await fetch('https://norooz-backend.fly.dev/rank-grants');
+      const response = await fetch('https://norooz-backend.fly.dev/rank-grants', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          states: selectedStates,
+          focus_areas: selectedFocusAreas
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('Rank grants response:', data);
       setAnalyzedGrants(data);
     } catch (error) {
       console.error('Error:', error);
-      setResults('Failed to rank grants. Please check if the backend server is running.');
+      setResults('Failed to rank grants. Please try again.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -221,6 +241,63 @@ export default function GrantSearch() {
       alert('Failed to generate proposal. Please try again.');
     } finally {
       setIsGeneratingProposal(false);
+    }
+  };
+
+  // Function to handle RFP proposal generation
+  const handleGenerateRFPProposal = async () => {
+    try {
+      // Create a file input element
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.pdf,.txt';
+      
+      // Handle file selection
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+
+        setIsGeneratingRFP(true);
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+          const response = await fetch('https://norooz-backend.fly.dev/upload-rfp', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.text();
+          
+          // Create and download the file
+          const blob = new Blob([data], { type: 'text/plain;charset=utf-8' });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `rfp_proposal_${new Date().toISOString().split('T')[0]}.txt`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+
+        } catch (error) {
+          console.error('Error generating RFP proposal:', error);
+          alert('Failed to generate RFP proposal. Please try again.');
+        } finally {
+          setIsGeneratingRFP(false);
+        }
+      };
+
+      // Trigger file input click
+      input.click();
+    } catch (error) {
+      console.error('Error:', error);
+      alert('An error occurred. Please try again.');
+      setIsGeneratingRFP(false);
     }
   };
 
@@ -469,6 +546,73 @@ export default function GrantSearch() {
     }
   };
 
+  const handleCheckSavedResults = async () => {
+    if (!selectedStates.length || !selectedFocusAreas.length) {
+      alert('Please select both states and focus areas');
+      return;
+    }
+
+    setIsLoadingSaved(true);
+    setSavedResults('');
+    setAnalyzedGrants([]); // Clear previous analyzed grants
+    try {
+      const response = await axios.post('https://norooz-backend.fly.dev/latest-scrape-batch', {
+        states: selectedStates,
+        focus_areas: selectedFocusAreas
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.data) {
+        // Format the created_at date
+        const createdAt = new Date(response.data.created_at);
+        const timeAgo = getTimeAgo(createdAt);
+        setSavedSearchTime(timeAgo);
+
+        // Format the results
+        if (response.data.json_results && Array.isArray(response.data.json_results)) {
+          const titles = `Saved Results (${response.data.json_results.length} grants found)\nLast updated: ${timeAgo}\n\n` + 
+            response.data.json_results.map((item: any, index: number) => {
+              return `${index + 1}. ${item.title}`;
+            }).join('\n');
+          setSavedResults(titles);
+        } else {
+          setSavedResults('No saved results found');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching saved results:', error);
+      setSavedResults('Error fetching saved results. Please try again.');
+    } finally {
+      setIsLoadingSaved(false);
+    }
+  };
+
+  // Helper function to format time ago
+  const getTimeAgo = (date: Date) => {
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) return `${diffInSeconds} seconds ago`;
+    
+    const diffInMinutes = Math.floor(diffInSeconds / 60);
+    if (diffInMinutes < 60) return `${diffInMinutes} minutes ago`;
+    
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) return `${diffInHours} hours ago`;
+    
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 30) return `${diffInDays} days ago`;
+    
+    const diffInMonths = Math.floor(diffInDays / 30);
+    if (diffInMonths < 12) return `${diffInMonths} months ago`;
+    
+    const diffInYears = Math.floor(diffInMonths / 12);
+    return `${diffInYears} years ago`;
+  };
+
   if (isInitialLoading) {
     return (
       <div className="min-h-screen bg-gray-900 p-4 flex items-center justify-center">
@@ -489,95 +633,178 @@ export default function GrantSearch() {
         <div className="flex flex-col md:flex-row gap-8">
           {/* Left Column - Search Panel */}
           <div className="w-full md:w-1/3">
-            <div className="bg-gray-800 rounded-xl shadow-lg shadow-black/50 p-8 border border-gray-700 hover:shadow-xl transition-shadow duration-300">
+            <div className="bg-gray-800 rounded-xl shadow-lg p-6">
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-200 mb-2">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
                     Select States
                   </label>
-                  <Select<SelectOption, true>
+                  <Select
                     isMulti
                     options={stateOptions}
-                    onChange={(selected: MultiValue<SelectOption>) => 
-                      setSelectedStates(selected.map(item => item.value))
+                    className="text-sm"
+                    classNamePrefix="select"
+                    onChange={(selected: MultiValue<SelectOption>) =>
+                      setSelectedStates(selected.map(option => option.value))
                     }
-                    className="basic-multi-select"
-                    classNames={{
-                      control: (state) => 'border-2 border-gray-600 hover:border-blue-500 bg-gray-700 text-white',
-                      menu: () => 'bg-gray-700 border border-gray-600',
-                      option: (state) => state.isFocused ? 'bg-gray-600 text-white' : 'text-gray-200',
-                      multiValue: () => 'bg-blue-500 text-white',
-                      multiValueLabel: () => 'text-white',
-                      multiValueRemove: () => 'hover:bg-blue-600 text-white',
-                      placeholder: () => 'text-gray-400',
-                      input: () => 'text-white'
-                    }}
-                    placeholder="Choose states..."
-                    noOptionsMessage={() => "No states available"}
-                    isDisabled={isLoading}
+                    isLoading={isInitialLoading}
                     styles={{
-                      input: (base) => ({
+                      control: (base) => ({
+                        ...base,
+                        background: '#374151',
+                        borderColor: '#4B5563',
+                        '&:hover': {
+                          borderColor: '#6B7280'
+                        }
+                      }),
+                      menu: (base) => ({
+                        ...base,
+                        background: '#374151'
+                      }),
+                      option: (base, state) => ({
+                        ...base,
+                        backgroundColor: state.isFocused ? '#4B5563' : 'transparent',
+                        color: 'white',
+                        '&:hover': {
+                          backgroundColor: '#4B5563'
+                        }
+                      }),
+                      multiValue: (base) => ({
+                        ...base,
+                        backgroundColor: '#4B5563'
+                      }),
+                      multiValueLabel: (base) => ({
                         ...base,
                         color: 'white'
+                      }),
+                      multiValueRemove: (base) => ({
+                        ...base,
+                        color: 'white',
+                        '&:hover': {
+                          backgroundColor: '#6B7280',
+                          color: 'white'
+                        }
                       })
                     }}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-200 mb-2">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
                     Select Focus Areas
                   </label>
-                  <Select<SelectOption, true>
+                  <Select
                     isMulti
                     options={focusAreaOptions}
-                    onChange={(selected: MultiValue<SelectOption>) => 
-                      setSelectedFocusAreas(selected.map(item => item.value))
+                    className="text-sm"
+                    classNamePrefix="select"
+                    onChange={(selected: MultiValue<SelectOption>) =>
+                      setSelectedFocusAreas(selected.map(option => option.value))
                     }
-                    className="basic-multi-select"
-                    classNames={{
-                      control: (state) => 'border-2 border-gray-600 hover:border-blue-500 bg-gray-700 text-white',
-                      menu: () => 'bg-gray-700 border border-gray-600',
-                      option: (state) => state.isFocused ? 'bg-gray-600 text-white' : 'text-gray-200',
-                      multiValue: () => 'bg-blue-500 text-white',
-                      multiValueLabel: () => 'text-white',
-                      multiValueRemove: () => 'hover:bg-blue-600 text-white',
-                      placeholder: () => 'text-gray-400',
-                      input: () => 'text-white'
-                    }}
-                    placeholder="Choose focus areas..."
-                    noOptionsMessage={() => "No focus areas available"}
-                    isDisabled={isLoading}
+                    isLoading={isInitialLoading}
                     styles={{
-                      input: (base) => ({
+                      control: (base) => ({
+                        ...base,
+                        background: '#374151',
+                        borderColor: '#4B5563',
+                        '&:hover': {
+                          borderColor: '#6B7280'
+                        }
+                      }),
+                      menu: (base) => ({
+                        ...base,
+                        background: '#374151'
+                      }),
+                      option: (base, state) => ({
+                        ...base,
+                        backgroundColor: state.isFocused ? '#4B5563' : 'transparent',
+                        color: 'white',
+                        '&:hover': {
+                          backgroundColor: '#4B5563'
+                        }
+                      }),
+                      multiValue: (base) => ({
+                        ...base,
+                        backgroundColor: '#4B5563'
+                      }),
+                      multiValueLabel: (base) => ({
                         ...base,
                         color: 'white'
+                      }),
+                      multiValueRemove: (base) => ({
+                        ...base,
+                        color: 'white',
+                        '&:hover': {
+                          backgroundColor: '#6B7280',
+                          color: 'white'
+                        }
                       })
                     }}
                   />
                 </div>
 
-                <div className="space-y-4">
-                  <button
-                    onClick={handleSearch}
-                    disabled={isLoading || (!selectedStates.length && !selectedFocusAreas.length)}
-                    className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md disabled:shadow-none"
-                  >
-                    {isLoading ? (
-                      <span className="flex items-center justify-center">
-                        <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-3"></span>
-                        Searching...
-                      </span>
-                    ) : 'Search Grants'}
-                  </button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">
+                    Search Options
+                  </label>
+                  <div className="space-y-2 bg-gray-700/30 rounded-lg p-3 border border-gray-600">
+                    <button
+                      onClick={handleSearch}
+                      disabled={isLoading || !selectedStates.length || !selectedFocusAreas.length}
+                      className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center"
+                    >
+                      {isLoading ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Searching...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                          Search Grants
+                        </>
+                      )}
+                    </button>
 
-                  <Link
-                    href="/grant-history"
-                    className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md text-center block"
-                  >
-                    View Grant History
-                  </Link>
+                    <button
+                      onClick={handleCheckSavedResults}
+                      disabled={isLoadingSaved || !selectedStates.length || !selectedFocusAreas.length}
+                      className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center"
+                    >
+                      {isLoadingSaved ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                          </svg>
+                          Check Saved Results
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
+
+                <Link 
+                  href="/grant-history"
+                  className="w-full bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-600 transition-colors flex items-center justify-center"
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                  View Grant History
+                </Link>
               </div>
             </div>
           </div>
@@ -585,12 +812,14 @@ export default function GrantSearch() {
           {/* Right Column - Results */}
           <div className="w-full md:w-2/3">
             <div className="bg-gray-800 rounded-xl shadow-lg shadow-black/50 p-8 border border-gray-700 min-h-[500px] hover:shadow-xl transition-shadow duration-300">
-              {isLoading || isAnalyzing ? (
+              {isLoading || isLoadingSaved || isAnalyzing ? (
                 <div className="flex items-center justify-center h-64">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-600 border-t-blue-400 mx-auto mb-4"></div>
                     <p className="text-gray-300 text-lg">
-                      {isLoading ? 'Searching for grants...' : 'Analyzing grants...'}
+                      {isLoading ? 'Searching for grants...' : 
+                       isLoadingSaved ? 'Loading saved results...' : 
+                       'Analyzing grants...'}
                     </p>
                   </div>
                 </div>
@@ -606,7 +835,7 @@ export default function GrantSearch() {
                       <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
-                      Download Analyze Results
+                      Download Ranked Results
                     </button>
                   </div>
 
@@ -649,45 +878,89 @@ export default function GrantSearch() {
                         >
                           View Grant Details
                         </a>
-                        <button 
-                          onClick={() => handleGenerateProposal({ name: grant.title, link: grant.link })}
-                          disabled={isGeneratingProposal}
-                          className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md disabled:bg-gray-600 disabled:cursor-not-allowed"
-                        >
-                          {isGeneratingProposal ? (
-                            <>
-                              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
-                              Generating Proposal...
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                              </svg>
-                              Generate Proposal
-                            </>
-                          )}
-                        </button>
+                        <div className="flex gap-3">
+                          <button 
+                            onClick={() => handleGenerateProposal({ name: grant.title, link: grant.link })}
+                            disabled={isGeneratingProposal}
+                            className="inline-flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md disabled:bg-gray-600 disabled:cursor-not-allowed"
+                          >
+                            {isGeneratingProposal ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Generating Proposal...
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                Generate Proposal
+                              </>
+                            )}
+                          </button>
+
+                          <button 
+                            onClick={handleGenerateRFPProposal}
+                            disabled={isGeneratingRFP}
+                            className="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md disabled:bg-gray-600 disabled:cursor-not-allowed"
+                          >
+                            {isGeneratingRFP ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Generating RFP...
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                Generate RFP Proposal
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
-              ) : results ? (
+              ) : results || savedResults ? (
                 <div>
-                  <div className="whitespace-pre-line font-mono text-sm mb-6 p-6 bg-gray-700/50 rounded-lg border border-gray-600 text-gray-200">
-                    {results}
-                  </div>
-                  <button
-                    onClick={handleRankGrants}
-                    disabled={isAnalyzing}
-                    className="inline-flex items-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-md"
-                  >
-                    <span className="material-icons">analytics</span>
-                    {isAnalyzing ? 'Ranking...' : 'Rank Grants'}
-                  </button>
+                  <pre className="text-gray-300 whitespace-pre-wrap font-mono text-sm">
+                    {savedResults || results}
+                  </pre>
+                  {(!savedResults && results && !results.includes('Error')) || (savedResults && !savedResults.includes('Error')) ? (
+                    <button
+                      onClick={handleRankGrants}
+                      disabled={isAnalyzing}
+                      className="mt-6 px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-lg hover:from-emerald-600 hover:to-teal-600 transition-all transform hover:scale-[1.02] active:scale-[0.98] font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2 group"
+                    >
+                      {isAnalyzing ? (
+                        <>
+                          <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span className="text-lg">Ranking Grants...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5 transform group-hover:rotate-12 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                          </svg>
+                          <span className="text-lg font-semibold tracking-wide">Rank Grants</span>
+                          <svg className="w-5 h-5 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                          </svg>
+                        </>
+                      )}
+                    </button>
+                  ) : null}
                 </div>
               ) : (
                 <div className="text-center py-12">

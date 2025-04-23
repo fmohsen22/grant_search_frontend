@@ -48,6 +48,9 @@ export default function GrantHistory() {
   const [expandedOverviews, setExpandedOverviews] = useState<ExpandedOverviews>({});
   const [isDownloading, setIsDownloading] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [expandedOverview, setExpandedOverview] = useState<number | null>(null);
+  const [showPopover, setShowPopover] = useState(false);
+  const [selectedOverview, setSelectedOverview] = useState('');
 
   useEffect(() => {
     fetchGrants();
@@ -133,10 +136,12 @@ export default function GrantHistory() {
 
   const handleDownload = async (filename: string) => {
     try {
-      // Double encode the filename to handle special characters properly
-      const justFilename = filename.split('/').pop()!;
-      const encodedFilename = encodeURIComponent(justFilename);
-      const response = await fetch(`https://norooz-backend.fly.dev/download-proposal?filename=${encodedFilename}`, {
+      // Extract the title without timestamp and .txt extension
+      const title = filename.split('/').pop()
+        ?.replace(/\_\d{8}\_\d{6}\.txt$/, '') // Remove timestamp and .txt
+        || '';
+      
+      const response = await fetch(`https://norooz-backend.fly.dev/download-proposal?title=${encodeURIComponent(title)}`, {
         headers: {
           'Origin': 'http://localhost:3000',
           'Accept': 'application/octet-stream'
@@ -151,9 +156,8 @@ export default function GrantHistory() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      // Use the last part of the path as the download filename
-      const downloadFilename = filename.split('/').pop() || filename;
-      a.download = downloadFilename;
+      // Use the title for the download filename and add .txt extension
+      a.download = `${title}.txt`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -275,6 +279,12 @@ export default function GrantHistory() {
     }
   };
 
+  const handleShowMore = (overview: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    setSelectedOverview(overview);
+    setShowPopover(true);
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-900 p-6">
@@ -392,7 +402,7 @@ export default function GrantHistory() {
                         </div>
                         {grant.overview.length > 100 && (
                           <button
-                            onClick={() => toggleOverview(grant.id)}
+                            onClick={(e) => handleShowMore(grant.overview, e)}
                             className="text-blue-400 hover:text-blue-300 mt-1"
                           >
                             {expandedOverviews[grant.id] ? 'Show Less' : 'Show More'}
@@ -456,6 +466,30 @@ export default function GrantHistory() {
           </div>
         </div>
       </div>
+
+      {/* Overview Popover */}
+      {showPopover && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 rounded-xl shadow-xl max-w-3xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-xl font-semibold text-white">Overview</h3>
+                <button
+                  onClick={() => setShowPopover(false)}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="text-gray-300 text-base leading-relaxed">
+                {selectedOverview}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 
